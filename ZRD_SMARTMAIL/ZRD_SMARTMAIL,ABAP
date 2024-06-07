@@ -1,0 +1,7 @@
+INCLUDE zrd_smartmail_top.
+INCLUDE zrd_smartmail_imp.
+
+START-OF-SELECTION.
+
+go_smart_mail = NEW lcl_smart_mail( ).
+go_smart_mail->execute( ).
