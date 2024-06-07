@@ -1,0 +1,48 @@
+*&---------------------------------------------------------------------*
+*&  Include           ZRD_SMARTMAIL_TOP
+*&---------------------------------------------------------------------*
+REPORT zrd_smartmail.
+
+TABLES sscrfields.
+
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE text-001.
+PARAMETERS: p_sform AS CHECKBOX,
+            p_excel AS CHECKBOX,
+            p_image AS CHECKBOX,
+            p_pdf   AS CHECKBOX,
+            p_query AS CHECKBOX.
+SELECTION-SCREEN END OF BLOCK b1.
+SELECTION-SCREEN PUSHBUTTON 1(25) text-002 USER-COMMAND btn.
+
+AT SELECTION-SCREEN.
+  IF sy-ucomm = 'BTN'.
+    sscrfields-ucomm = 'ONLI'.
+  ENDIF.
+
+CLASS lcl_smart_mail DEFINITION FINAL.
+  PUBLIC SECTION.
+    METHODS execute.
+  PRIVATE SECTION.
+
+    TYPES:BEGIN OF ty_struct,
+            attached TYPE string,
+            count    TYPE i,
+          END OF ty_struct,
+          tt_struct TYPE TABLE OF ty_struct.
+
+    DATA: gv_xstr_sf         TYPE xstring,
+          gv_xstr            TYPE xstring,
+          gt_solix           TYPE solix_tab,
+          gv_xstr_xlsx       TYPE xstring,
+          gv_xstr_xlsx_query TYPE xstring,
+          gv_filled_query    TYPE abap_bool VALUE abap_true.
+    METHODS attach_smartform.
+    METHODS attach_excel.
+    METHODS attach_image.
+    METHODS attach_pdf.
+    METHODS attach_query.
+    METHODS send_email IMPORTING it_content TYPE tt_struct.
+    METHODS attach_files_to_email CHANGING  cv_document TYPE REF TO  cl_document_bcs.
+ENDCLASS.
+
+DATA go_smart_mail  TYPE REF TO lcl_smart_mail.
