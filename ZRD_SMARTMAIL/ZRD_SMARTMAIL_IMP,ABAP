@@ -1,0 +1,564 @@
+*&---------------------------------------------------------------------*
+*&  Include           ZRD_SMARTMAIL_IMP
+*&---------------------------------------------------------------------*
+
+CLASS lcl_smart_mail IMPLEMENTATION.
+  METHOD execute.
+    DATA(lv_empty) = abap_true.
+    DATA lt_attached_files TYPE STANDARD TABLE OF ty_struct.
+    lt_attached_files = VALUE #(
+                                 ( attached = 'PDF'   )
+                                 ( attached = 'Image' )
+                                 ( attached = 'Excel' ) ).
+
+    IF p_sform = abap_true.
+      attach_smartform( ).
+      lv_empty = abap_false.
+
+      READ TABLE lt_attached_files ASSIGNING FIELD-SYMBOL(<fs_content>) WITH KEY attached = 'PDF'.
+      <fs_content>-count = <fs_content>-count + 1.
+    ENDIF.
+
+    IF p_excel = abap_true.
+      attach_excel( ).
+      lv_empty = abap_false.
+
+      READ TABLE lt_attached_files ASSIGNING <fs_content> WITH KEY attached = 'Excel'.
+      <fs_content>-count = <fs_content>-count + 1.
+    ENDIF.
+
+    IF p_image = abap_true.
+      attach_image( ).
+      lv_empty = abap_false.
+
+      READ TABLE lt_attached_files ASSIGNING <fs_content> WITH KEY attached = 'Image'.
+      <fs_content>-count = <fs_content>-count + 1.
+    ENDIF.
+
+    IF p_pdf = abap_true.
+      attach_pdf( ).
+      lv_empty = abap_false.
+
+      READ TABLE lt_attached_files ASSIGNING <fs_content> WITH KEY attached = 'PDF'.
+      <fs_content>-count = <fs_content>-count + 1.
+    ENDIF.
+
+    IF p_query = abap_true.
+      attach_query( ).
+      lv_empty = abap_false.
+
+      READ TABLE lt_attached_files ASSIGNING <fs_content> WITH KEY attached = 'Excel'.
+      <fs_content>-count = <fs_content>-count + 1.
+    ENDIF.
+
+    IF lv_empty = abap_true.
+      MESSAGE 'You need to attach a file to send the email' TYPE 'S' DISPLAY LIKE 'E'.
+      RETURN.
+    ENDIF.
+    send_email( it_content = lt_attached_files ).
+  ENDMETHOD.
+
+
+  METHOD attach_smartform.
+
+    CONSTANTS: lc_sfname TYPE tdsfname VALUE 'ZRD_SMARTFORM'.
+
+    DATA: lt_otfdata      TYPE ssfcrescl,
+          lt_pdf_tab      TYPE STANDARD TABLE OF tline,
+          lt_otf          TYPE STANDARD TABLE OF itcoo,
+          ls_ctrlop       TYPE ssfctrlop,
+          ls_outopt       TYPE ssfcompop,
+          lv_bin_filesize TYPE so_obj_len,
+          lv_bin_xstr     TYPE xstring,
+          lv_fname        TYPE rs38l_fnam.
+
+    CALL FUNCTION 'SSF_FUNCTION_MODULE_NAME'
+      EXPORTING
+        formname           = lc_sfname
+      IMPORTING
+        fm_name            = lv_fname
+      EXCEPTIONS
+        no_form            = 1
+        no_function_module = 2
+        OTHERS             = 3.
+
+    ls_ctrlop-getotf = 'X'.
+    ls_ctrlop-no_dialog = 'X'.
+    ls_ctrlop-preview = space.
+
+    ls_outopt-tdnoprev = 'X'.
+    ls_outopt-tddest = 'LP01'.
+    ls_outopt-tdnoprint = 'X'.
+
+    DATA: l_devtype TYPE rspoptype.
+
+    CALL FUNCTION 'SSF_GET_DEVICE_TYPE'
+      EXPORTING
+        i_language             = 'E'
+      IMPORTING
+        e_devtype              = l_devtype
+      EXCEPTIONS
+        no_language            = 1
+        language_not_installed = 2
+        no_devtype_found       = 3
+        system_error           = 4
+        OTHERS                 = 5.
+
+    ls_outopt-tdprinter = l_devtype.
+
+    CALL FUNCTION lv_fname
+      EXPORTING
+        control_parameters = ls_ctrlop
+        output_options     = ls_outopt
+        lt_ebeln           = '4500006133'
+      IMPORTING
+        job_output_info    = lt_otfdata
+      EXCEPTIONS
+        formatting_error   = 1
+        internal_error     = 2
+        send_error         = 3
+        user_canceled      = 4
+        OTHERS             = 5.
+
+    lt_otf[] = lt_otfdata-otfdata[].
+
+    CALL FUNCTION 'CONVERT_OTF'
+      EXPORTING
+        format                = 'PDF'
+      IMPORTING
+        bin_filesize          = lv_bin_filesize
+        bin_file              = lv_bin_xstr
+      TABLES
+        otf                   = lt_otf[]
+        lines                 = lt_pdf_tab[]
+      EXCEPTIONS
+        err_max_linewidth     = 1
+        err_format            = 2
+        err_conv_not_possible = 3
+        OTHERS                = 4.
+    gv_xstr_sf = lv_bin_xstr.
+  ENDMETHOD.
+
+
+  METHOD attach_excel.
+
+    TYPES: BEGIN OF ty_str_mat,
+             matnr TYPE matnr,
+             mtart TYPE mtart,
+             ntgew TYPE ntgew,
+             maktx TYPE maktx,
+           END OF ty_str_mat.
+
+    DATA: lt_tab     TYPE STANDARD TABLE OF ty_str_mat,
+          lv_xstring TYPE xstring.
+
+    FIELD-SYMBOLS <ft_data> TYPE STANDARD TABLE.
+
+    DATA r_data TYPE REF TO data.
+    cl_salv_bs_runtime_info=>set(
+      display  = abap_false
+      metadata = abap_false
+      data     = abap_true ).
+
+    SUBMIT zrd_material_alv AND RETURN.
+
+    TRY.
+        cl_salv_bs_runtime_info=>get_data_ref( IMPORTING r_data = r_data ).
+        ASSIGN r_data->* TO <ft_data>.
+      CATCH cx_salv_bs_sc_runtime_info.
+        MESSAGE 'Unable to retrieve ALV data' TYPE 'E'.
+    ENDTRY.
+
+    TRY.
+        cl_salv_table=>factory(
+          IMPORTING r_salv_table = DATA(lo_table)
+          CHANGING  t_table      = <ft_data> ).
+
+        DATA(lt_fcat) =
+          cl_salv_controller_metadata=>get_lvc_fieldcatalog(
+            r_columns      = lo_table->get_columns( )
+            r_aggregations = lo_table->get_aggregations( ) ).
+
+        DATA(lo_result) =
+          cl_salv_ex_util=>factory_result_data_table(
+            r_data         = r_data
+            t_fieldcatalog = lt_fcat ).
+
+        cl_salv_bs_tt_util=>if_salv_bs_tt_util~transform(
+          EXPORTING
+            xml_type      = if_salv_bs_xml=>c_type_xlsx
+            xml_version   = cl_salv_bs_a_xml_base=>get_version( )
+            r_result_data = lo_result
+            xml_flavour   = if_salv_bs_c_tt=>c_tt_xml_flavour_export
+            gui_type      = if_salv_bs_xml=>c_gui_type_gui
+          IMPORTING
+            xml           = lv_xstring ).
+      CATCH cx_root.
+    ENDTRY.
+    gv_xstr_xlsx = lv_xstring.
+  ENDMETHOD.
+
+
+  METHOD attach_image.
+
+    DATA: lv_len         TYPE i,
+          lt_doc_content TYPE solix_tab.
+
+    CALL FUNCTION 'GUI_UPLOAD'
+      EXPORTING
+        filename   = 'C:\Users\Redjon\Downloads\logo.jpg'
+        filetype   = 'BIN'
+      IMPORTING
+        filelength = lv_len
+      TABLES
+        data_tab   = lt_doc_content[].
+    gt_solix = lt_doc_content.
+  ENDMETHOD.
+
+  METHOD attach_pdf.
+    DATA: lv_spool_parameters TYPE pri_params,
+          lv_spool_nr         TYPE tsp01_sp0r-rqid_char,
+          lv_bin_length       TYPE i,
+          lv_xstring_pdf      TYPE xstring.
+
+    CALL FUNCTION 'GET_PRINT_PARAMETERS'
+      EXPORTING
+        no_dialog              = abap_true
+      IMPORTING
+        out_parameters         = lv_spool_parameters
+      EXCEPTIONS
+        archive_info_not_found = 1
+        invalid_print_params   = 2
+        invalid_archive_params = 3
+        OTHERS                 = 4.
+
+    SUBMIT zrd_test TO SAP-SPOOL WITHOUT SPOOL DYNPRO SPOOL PARAMETERS lv_spool_parameters  AND RETURN.
+    GET PARAMETER ID 'SPI' FIELD lv_spool_nr.
+
+    CALL FUNCTION 'CONVERT_ABAPSPOOLJOB_2_PDF'
+      EXPORTING
+        src_spoolid              = CONV tsp01-rqident( lv_spool_nr )
+        no_dialog                = abap_true
+        pdf_destination          = 'X'
+        get_size_from_format     = abap_true
+      IMPORTING
+        pdf_bytecount            = lv_bin_length
+        bin_file                 = lv_xstring_pdf
+      EXCEPTIONS
+        err_no_abap_spooljob     = 1
+        err_no_spooljob          = 2
+        err_no_permission        = 3
+        err_conv_not_possible    = 4
+        err_bad_destdevice       = 5
+        user_cancelled           = 6
+        err_spoolerror           = 7
+        err_temseerror           = 8
+        err_btcjob_open_failed   = 9
+        err_btcjob_submit_failed = 10
+        err_btcjob_close_failed  = 11
+        OTHERS                   = 12.
+
+    gv_xstr = lv_xstring_pdf.
+  ENDMETHOD.
+
+
+  METHOD attach_query.
+
+    TYPES: BEGIN OF ty_maktx,
+             ntgew TYPE string,
+             meins TYPE string,
+             mtart TYPE string,
+             matnr TYPE string,
+             maktx TYPE string,
+           END OF ty_maktx.
+
+    DATA: lt_maktx         TYPE STANDARD TABLE OF ty_maktx,
+          ls_maktx         TYPE ty_maktx,
+          lv_xstring_query TYPE xstring,
+          lt_data          TYPE STANDARD TABLE OF rsaqldata.
+
+    CALL FUNCTION 'RSAQ_REMOTE_QUERY_CALL'
+      EXPORTING
+        workspace                   = 'G'
+        usergroup                   = CONV aqadef-bgname( 'ZRD_UG' )
+        query                       = CONV aqadef-quname( 'ZRD_INFOSET' )
+        variant                     = ' '
+        dbacc                       = 10
+        skip_selscreen              = 'X'
+        data_to_memory              = 'X'
+        external_presentation       = ' '
+      TABLES
+        ldata                       = lt_data
+      EXCEPTIONS
+        no_usergroup                = 1
+        no_query                    = 2
+        query_locked                = 3
+        generation_cancelled        = 4
+        no_selection                = 5
+        no_variant                  = 6
+        just_via_variant            = 7
+        no_submit_auth              = 8
+        no_data_selected            = 9
+        data_to_memory_not_possible = 10
+        OTHERS                      = 11.
+
+    READ TABLE lt_data ASSIGNING FIELD-SYMBOL(<fs_text_row>) INDEX 1.
+    SPLIT <fs_text_row> AT ';' INTO:  TABLE DATA(lt_text_tab).
+
+    LOOP AT lt_text_tab ASSIGNING FIELD-SYMBOL(<fs_ascii>).
+      IF ( sy-tabix < 11 ) .
+        SPLIT <fs_ascii> AT ','  INTO: ls_maktx-ntgew ls_maktx-meins ls_maktx-mtart  ls_maktx-matnr ls_maktx-maktx.
+        ls_maktx-maktx = ls_maktx-maktx+4.
+        ls_maktx-ntgew = ls_maktx-ntgew+4.
+        ls_maktx-meins = ls_maktx-meins+4.
+        ls_maktx-mtart = ls_maktx-mtart+4.
+        ls_maktx-matnr = ls_maktx-matnr+4.
+        APPEND ls_maktx TO lt_maktx.
+        CLEAR ls_maktx.
+      ENDIF.
+    ENDLOOP.
+
+    DATA r_data TYPE REF TO data.
+    GET REFERENCE OF lt_maktx INTO r_data.
+
+    TRY.
+        cl_salv_table=>factory(
+          IMPORTING r_salv_table = DATA(lo_table_query)
+          CHANGING  t_table      = lt_maktx ).
+
+        DATA(lt_fcat_query) =
+          cl_salv_controller_metadata=>get_lvc_fieldcatalog(
+            r_columns      = lo_table_query->get_columns( )
+            r_aggregations = lo_table_query->get_aggregations( ) ).
+
+        DATA(lo_result_query) =
+          cl_salv_ex_util=>factory_result_data_table(
+            r_data         = r_data
+            t_fieldcatalog = lt_fcat_query ).
+
+        cl_salv_bs_tt_util=>if_salv_bs_tt_util~transform(
+          EXPORTING
+            xml_type      = if_salv_bs_xml=>c_type_xlsx
+            xml_version   = cl_salv_bs_a_xml_base=>get_version( )
+            r_result_data = lo_result_query
+            xml_flavour   = if_salv_bs_c_tt=>c_tt_xml_flavour_export
+            gui_type      = if_salv_bs_xml=>c_gui_type_gui
+          IMPORTING
+            xml           = lv_xstring_query ).
+      CATCH cx_root.
+    ENDTRY.
+
+    gv_xstr_xlsx_query = lv_xstring_query.
+
+  ENDMETHOD.
+
+
+  METHOD send_email.
+
+    DATA: lt_body   TYPE soli_tab,
+          ls_body   TYPE soli,
+          lt_objtxt TYPE STANDARD TABLE OF solisti1,
+          ls_objtxt TYPE  solisti1.
+
+    MOVE 'Hello SAP-Client' TO ls_objtxt-line.
+    APPEND ls_objtxt TO lt_objtxt.
+    MOVE '<BR><BR>' TO ls_objtxt-line.
+    APPEND ls_objtxt TO lt_objtxt.
+    MOVE 'Please find attached all the following documents:' TO ls_objtxt-line.
+    APPEND ls_objtxt TO lt_objtxt.
+    MOVE '<BR><BR>' TO ls_objtxt-line.
+    APPEND ls_objtxt TO lt_objtxt.
+    MOVE '<body style="background-color: #D7ECF3;">' TO ls_objtxt-line.
+    APPEND ls_objtxt TO lt_objtxt.
+    MOVE '<TABLE BORDER=2>' TO ls_objtxt-line.
+    APPEND ls_objtxt TO lt_objtxt.
+    MOVE '<TR style="background-color: #96A5AA;">' TO ls_objtxt-line.
+    APPEND ls_objtxt TO lt_objtxt.
+    MOVE '<TH> Attachment </TH> ' TO ls_objtxt-line.
+    APPEND ls_objtxt TO lt_objtxt.
+    MOVE '<TH> Count</TH></TR> ' TO ls_objtxt-line.
+    APPEND ls_objtxt TO lt_objtxt.
+
+    LOOP AT it_content ASSIGNING FIELD-SYMBOL(<fs_cnt_row>).
+      DATA(lv_count) = CONV string( <fs_cnt_row>-count ).
+      MOVE '<TR>' TO ls_objtxt-line.
+      APPEND ls_objtxt TO lt_objtxt.
+
+      CONCATENATE '<TD>' <fs_cnt_row>-attached '</TD>' INTO ls_objtxt-line.
+      APPEND ls_objtxt TO lt_objtxt.
+
+      CONCATENATE '<TD>' lv_count '</TD>' INTO ls_objtxt-line.
+      APPEND ls_objtxt TO lt_objtxt.
+
+      MOVE '</TR>' TO ls_objtxt-line.
+      APPEND ls_objtxt TO lt_objtxt.
+    ENDLOOP.
+
+    TRY.
+        DATA(lo_doc) = cl_document_bcs=>create_document(
+         i_type = 'HTM'
+         i_subject = 'ZRD Test E-mail'
+         i_text = lt_objtxt ).
+
+        attach_files_to_email(
+        CHANGING
+          cv_document  = lo_doc ).
+      CATCH cx_document_bcs.
+    ENDTRY.
+
+    TRY.
+        CALL METHOD cl_bcs=>create_persistent
+          RECEIVING
+            result = DATA(lo_send_request).
+      CATCH cx_send_req_bcs.
+    ENDTRY.
+
+    TRY.
+        CALL METHOD lo_send_request->set_document
+          EXPORTING
+            i_document = lo_doc.
+      CATCH cx_send_req_bcs.
+    ENDTRY.
+
+    TRY.
+        CALL METHOD cl_cam_address_bcs=>create_internet_address
+          EXPORTING
+            i_address_string = 'Redjon'
+          RECEIVING
+            result           = DATA(lo_sender).
+      CATCH cx_address_bcs.
+    ENDTRY.
+
+    TRY.
+        CALL METHOD cl_cam_address_bcs=>create_internet_address
+          EXPORTING
+            i_address_string = 'redjon.test@test.com'
+          RECEIVING
+            result           = DATA(lo_recipient).
+      CATCH cx_address_bcs.
+    ENDTRY.
+
+    TRY.
+        CALL METHOD lo_send_request->set_sender
+          EXPORTING
+            i_sender = lo_sender.
+      CATCH cx_send_req_bcs.
+    ENDTRY.
+
+    TRY.
+        CALL METHOD lo_send_request->add_recipient
+          EXPORTING
+            i_recipient = lo_recipient
+            i_express   = abap_true.
+      CATCH cx_send_req_bcs.
+    ENDTRY.
+
+    TRY.
+        CALL METHOD lo_send_request->send
+          RECEIVING
+            result = DATA(lv_status).
+      CATCH cx_send_req_bcs.
+    ENDTRY.
+    COMMIT WORK.
+
+    MESSAGE 'Email sent successfully.' TYPE 'S'.
+  ENDMETHOD.
+
+
+
+
+  METHOD attach_files_to_email.
+
+    DATA:  lt_bin           TYPE solix_tab,
+           lt_bin_sf        TYPE solix_tab,
+           lt_bin_xsls      TYPE solix_tab,
+           lv_pdf_size      TYPE i,
+           lv_output_length TYPE i,
+           lt_exc_solix     TYPE solix_tab,
+           lt_att_head      TYPE soli_tab,
+           lv_filename      TYPE string,
+           lv_text_line     TYPE soli.
+
+    IF gv_xstr_xlsx IS NOT INITIAL.
+
+      lv_filename = 'material.xlsx'.
+      CONCATENATE '&SO_FILENAME=' lv_filename INTO lv_text_line.
+      APPEND lv_text_line TO lt_att_head.
+
+      DATA(lt_bin_tab) = cl_document_bcs=>xstring_to_solix( ip_xstring = gv_xstr_xlsx ).
+      TRY.
+          CALL METHOD cv_document->add_attachment
+            EXPORTING
+              i_attachment_type    = 'bin'
+              i_attachment_subject = 'Materials'
+              i_att_content_hex    = lt_bin_tab
+              i_attachment_size    = CONV sood-objlen( lv_output_length )
+              i_attachment_header  = lt_att_head.
+        CATCH cx_document_bcs.
+      ENDTRY.
+    ENDIF.
+
+    IF gv_xstr_xlsx_query IS NOT INITIAL.
+
+      lv_filename = 'Query.xlsx'.
+      CONCATENATE '&SO_FILENAME=' lv_filename INTO lv_text_line.
+      APPEND lv_text_line TO lt_att_head.
+
+      lt_bin_tab = cl_document_bcs=>xstring_to_solix( ip_xstring = gv_xstr_xlsx_query ).
+      TRY.
+          CALL METHOD cv_document->add_attachment
+            EXPORTING
+              i_attachment_type    = 'bin'
+              i_attachment_subject = 'Query result'
+              i_att_content_hex    = lt_bin_tab
+              i_attachment_size    = CONV sood-objlen( lv_output_length )
+              i_attachment_header  = lt_att_head.
+        CATCH cx_document_bcs.
+      ENDTRY.
+    ENDIF.
+
+    IF gt_solix IS NOT INITIAL .
+      TRY.
+          cv_document->add_attachment(
+          EXPORTING
+            i_attachment_type = 'JPG'
+            i_attachment_subject = 'Picture'
+            i_att_content_hex = gt_solix ).
+        CATCH cx_document_bcs.
+      ENDTRY.
+    ENDIF.
+
+    IF gv_xstr IS NOT INITIAL.
+      CALL FUNCTION 'SCMS_XSTRING_TO_BINARY'
+        EXPORTING
+          buffer     = gv_xstr
+        TABLES
+          binary_tab = lt_bin.
+
+      TRY.
+          cv_document->add_attachment( i_attachment_type    = 'PDF'
+                                  i_attachment_subject = CONV sood-objdes( 'Report Output' )
+                                  i_att_content_hex    = lt_bin ).
+        CATCH cx_document_bcs.
+      ENDTRY.
+    ENDIF.
+
+    IF gv_xstr_sf IS NOT INITIAL.
+
+      CALL FUNCTION 'SCMS_XSTRING_TO_BINARY'
+        EXPORTING
+          buffer     = gv_xstr_sf
+        TABLES
+          binary_tab = lt_bin_sf.
+
+      TRY.
+          cv_document->add_attachment( i_attachment_type    = 'PDF'
+                                  i_attachment_subject = CONV sood-objdes( 'Smartform' )
+                                  i_att_content_hex    = lt_bin_sf ).
+        CATCH cx_document_bcs.
+      ENDTRY.
+    ENDIF.
+
+  ENDMETHOD.
+
+ENDCLASS.
