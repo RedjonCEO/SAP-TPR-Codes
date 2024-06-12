@@ -1,0 +1,10 @@
+
+INCLUDE zrd_tvarvc_clone_top.
+INCLUDE zrd_tvarvc_clone_imp.
+INCLUDE zrd_tvarvc_clone_pai.
+INCLUDE zrd_tvarvc_clone_pbo.
+
+START-OF-SELECTION.
+
+go_tvarvc_clone = NEW lcl_tvarvc_clone( ).
+go_tvarvc_clone->execute( ).
