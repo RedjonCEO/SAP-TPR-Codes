@@ -74,6 +74,7 @@ CLASS lcl_vehicle_update IMPLEMENTATION.
     INTO CORRESPONDING FIELDS OF TABLE mt_vehicles
     WHERE vlc~mmsta     IN s_mmsta
     AND   vlc~vhvin     IN s_vhvin
+    AND   vlc~vhcle     IN s_vhcle
     AND   hd~zbatch     IN s_batch
     AND   hd~zprod_slot IN s_prslot
     AND   hd~zdest_port IN s_desprt
@@ -187,11 +188,15 @@ CLASS lcl_vehicle_update IMPLEMENTATION.
       EXPORTING
         parent            = lo_cont
         rows              = 2
-        columns           = 2
+        columns           = 1
       EXCEPTIONS
         cntl_error        = 1
         cntl_system_error = 2
         OTHERS            = 3.
+
+    mo_split_col->set_row_sash( id    = 1
+                                   type  = cl_gui_splitter_container=>type_sashvisible
+                                   value = cl_gui_splitter_container=>false ).
 
     mo_split_col->set_row_height(
       EXPORTING
@@ -202,6 +207,16 @@ CLASS lcl_vehicle_update IMPLEMENTATION.
         cntl_system_error = 2
         OTHERS            = 3 ).
 
+    CREATE OBJECT mo_split_row
+      EXPORTING
+        parent            = mo_split_col->get_container( row = 2 column = 1 )
+        rows              = 1
+        columns           = 2
+      EXCEPTIONS
+        cntl_error        = 1
+        cntl_system_error = 2
+        OTHERS            = 3.
+
     set_logs_visibility( cl_gui_splitter_container=>false ).
     mo_top_cnt = mo_split_col->get_container( row = 1 column = 1 ).
 
@@ -211,7 +226,7 @@ CLASS lcl_vehicle_update IMPLEMENTATION.
 
     CREATE OBJECT mo_grid
       EXPORTING
-        i_parent          = mo_split_col->get_container( row = 2 column = 1 )
+        i_parent          = mo_split_row->get_container( row = 1 column = 1 )
       EXCEPTIONS
         error_cntl_create = 1
         error_cntl_init   = 2
@@ -233,7 +248,7 @@ CLASS lcl_vehicle_update IMPLEMENTATION.
       lv_height = 50.
     ENDIF.
 
-    mo_split_col->set_column_width(
+    mo_split_row->set_column_width(
       EXPORTING
         id                = 2
         width             = lv_height
@@ -243,7 +258,7 @@ CLASS lcl_vehicle_update IMPLEMENTATION.
         OTHERS            = 3
     ).
 
-    mo_split_col->set_column_sash( id    = 2
+    mo_split_row->set_column_sash( id    = 2
                                    type  = cl_gui_splitter_container=>type_sashvisible
                                    value = iv_visible ).
 
@@ -908,7 +923,7 @@ CLASS lcl_vehicle_update IMPLEMENTATION.
     TRY.
         cl_salv_table=>factory(
           EXPORTING
-            r_container  = mo_split_col->get_container( row = 2 column = 2 )
+            r_container  = mo_split_row->get_container( row = 1 column = 2 )
           IMPORTING
             r_salv_table = mo_salv_logs
           CHANGING
