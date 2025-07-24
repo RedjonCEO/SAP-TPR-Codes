@@ -13,7 +13,7 @@ CLASS lcl_report DEFINITION FINAL.
   PUBLIC SECTION.
 
     TYPES: BEGIN OF ty_structure,
-           mara type mara,
+           matnr type mara-matnr,
            END OF ty_structure,
     tt_structure TYPE TABLE OF ty_structure.
 
